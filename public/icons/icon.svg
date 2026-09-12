@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="HerHealth flower">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFD9E8"/><stop offset="1" stop-color="#EEE5F5"/></linearGradient></defs>
+  <rect width="512" height="512" rx="118" fill="url(#bg)"/>
+  <g transform="translate(256 250)">
+    <ellipse rx="66" ry="138" transform="rotate(0)" fill="#C44C70"/>
+    <ellipse rx="66" ry="138" transform="rotate(72)" fill="#D96787"/>
+    <ellipse rx="66" ry="138" transform="rotate(144)" fill="#B06AA5"/>
+    <ellipse rx="66" ry="138" transform="rotate(216)" fill="#E78799"/>
+    <ellipse rx="66" ry="138" transform="rotate(288)" fill="#C95A80"/>
+    <circle r="58" fill="#FFF0BD"/><circle r="25" fill="#8E2447"/>
+  </g>
+</svg>

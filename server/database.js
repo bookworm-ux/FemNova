@@ -274,9 +274,21 @@ CREATE TABLE IF NOT EXISTS fn_audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_fn_daily_logs_user_date ON fn_daily_logs(user_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_fn_lab_results_user_date ON fn_lab_results(user_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_fn_sessions_user_expires ON fn_sessions(user_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fn_predictions_user_generated ON fn_lab_predictions(user_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fn_posts_created ON fn_community_posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fn_reports_status ON fn_community_reports(status, created_at DESC);
 `);
+
+const userColumns = db.prepare('PRAGMA table_info(fn_users)').all().map((column) => column.name);
+if (!userColumns.includes('auto_provisioned')) {
+  db.exec(`ALTER TABLE fn_users ADD COLUMN auto_provisioned INTEGER NOT NULL DEFAULT 0`);
+}
+
+const profileColumns = db.prepare('PRAGMA table_info(fn_profiles)').all().map((column) => column.name);
+if (!profileColumns.includes('last_prediction_at')) {
+  db.exec(`ALTER TABLE fn_profiles ADD COLUMN last_prediction_at TEXT`);
+}
 
 const labTests = [
   ['ft3', 'Free T3', 'FT3', 'pg/mL', 'thyroid', 1],
@@ -300,8 +312,14 @@ const defaultRanges = {
   ft3: [2.3, 4.2, 'pg/mL'],
   ft4: [0.8, 1.8, 'ng/dL'],
   tsh: [0.4, 4.0, 'mIU/L'],
-  hb: [12.0, 15.5, 'g/dL']
+  hb: [12.0, 15.5, 'g/dL'],
+  fsh: [3.0, 10.0, 'mIU/mL'],
+  lh: [2.0, 12.0, 'mIU/mL'],
+  amh: [1.0, 4.0, 'ng/mL'],
+  estrogen: [30.0, 400.0, 'pg/mL'],
+  progesterone: [0.1, 25.0, 'ng/mL']
 };
+const CORE_RANGE_CODES = new Set(['ft3', 'ft4', 'tsh', 'hb']);
 const populations = ['adult_non_pregnant', 'pregnancy_t1', 'pregnancy_t2', 'pregnancy_t3', 'adolescent'];
 const insertRange = db.prepare(`
   INSERT OR IGNORE INTO fn_reference_ranges
@@ -319,14 +337,16 @@ for (const [code, [low, high, unit]] of Object.entries(defaultRanges)) {
       low,
       high,
       Math.max((high - low) * 0.1, 0.05),
-      'FemNova example range. Replace with the reporting laboratory range; assay and population ranges vary.'
+      CORE_RANGE_CODES.has(code)
+        ? 'HerHealth example range. Replace with the reporting laboratory range; assay and population ranges vary.'
+        : 'Broad illustrative tracking band only. Hormone interpretation varies substantially by cycle phase, assay, age, and clinical context.'
     );
   }
 }
 
 db.prepare(`
   INSERT OR IGNORE INTO fn_model_versions (id, name, version, description)
-  VALUES (?, 'FemNova deterministic baseline', 'baseline-1.0.0', 'Auditable rules-based placeholder; not a clinically validated ML model.')
+  VALUES (?, 'HerHealth deterministic baseline', 'baseline-1.0.0', 'Auditable rules-based placeholder; not a clinically validated ML model.')
 `).run(randomUUID());
 
 const articles = [
@@ -371,6 +391,12 @@ const articles = [
     summary: 'Testing, timing, and why cycle predictions are estimates.',
     content: 'A missed period can have several causes. A pregnancy test is more reliable than a cycle prediction for checking pregnancy. Fertile-window estimates are not guaranteed contraception and do not confirm ovulation. Seek clinical advice for pregnancy concerns or persistent difficulty conceiving.',
     sourceTitle: 'NHS: Doing a pregnancy test', sourceUrl: 'https://www.nhs.uk/pregnancy/trying-for-a-baby/doing-a-pregnancy-test/'
+  },
+  {
+    slug: 'preventing-pregnancy', title: 'Preventing pregnancy and using contraception', topic: 'Pregnancy',
+    summary: 'Why fertile-window apps are estimates and contraception should be used consistently when avoiding pregnancy.',
+    content: 'Fertility awareness apps can estimate when pregnancy is more likely, but they cannot confirm ovulation on their own. If you want to avoid pregnancy, use a reliable contraceptive method every time you have penis-in-vagina sex. Condoms also reduce the risk of many sexually transmitted infections. A clinician or pharmacist can help compare options that fit your health history and preferences.',
+    sourceTitle: 'CDC: Contraception and birth control methods', sourceUrl: 'https://www.cdc.gov/contraception/about/'
   },
   {
     slug: 'red-flags', title: 'When symptoms need urgent care', topic: 'Safety',

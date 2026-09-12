@@ -1,0 +1,11 @@
+[
+  {
+    "slug": "example-approved-guide",
+    "title": "Example approved health guide",
+    "topic": "Cycle basics",
+    "summary": "A short, reviewed summary used in search results.",
+    "content": "Replace this example with reviewed educational content. Keep statements factual, scoped, and suitable for citation in non-diagnostic answers.",
+    "sourceTitle": "Publishing organization and page title",
+    "sourceUrl": "https://example.org/approved-source"
+  }
+]

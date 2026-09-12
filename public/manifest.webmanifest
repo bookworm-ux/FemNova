@@ -1,0 +1,25 @@
+{
+  "name": "HerHealth - Your cycle, understood",
+  "short_name": "HerHealth",
+  "description": "A private, gentle cycle and menstrual health companion.",
+  "start_url": "/#home",
+  "display": "standalone",
+  "background_color": "#fffaf8",
+  "theme_color": "#FFD9E8",
+  "orientation": "portrait-primary",
+  "categories": ["health", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

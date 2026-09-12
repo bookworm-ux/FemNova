@@ -1,4 +1,79 @@
-# FemNova
+# HerHealth
+
+HerHealth is the app name. `FemNova` is the team name behind the project.
+
+## Deployment Options
+
+This repo currently runs as:
+- a Vite/React frontend
+- an Express API server
+- a local SQLite database via `better-sqlite3`
+- uploaded files stored in `uploads/`
+
+### 1. Single server deployment
+
+This is the simplest option and the best fit for the code as it exists today.
+
+How it works:
+- run `npm install`
+- build the frontend with `npm run build`
+- start the API with `npm start`
+- serve the built frontend from a reverse proxy like Nginx or Caddy
+- proxy `/api` requests to the Node server on port `3001` or your chosen `PORT`
+
+Why it fits:
+- the frontend already calls `/api` on the same origin
+- SQLite and uploaded files are easiest to manage on one persistent machine or VM
+- good targets include a VPS, Railway with persistent storage, Render, or Fly.io with a volume
+
+### 2. Frontend and backend split deployment
+
+This works well if you want the frontend on Vercel, Netlify, or Cloudflare Pages and the API on Render, Railway, or Fly.io.
+
+This repo is now prepared for that split deployment style.
+
+What was added:
+- `VITE_API_BASE_URL` support in the frontend
+- `ALLOWED_ORIGINS` support in the backend
+- bearer-token auth fallback so login persists even when frontend and backend are on different domains
+- file export and prescription downloads now work through authenticated fetches instead of same-origin-only links
+
+Typical setup:
+- frontend env: `VITE_API_BASE_URL=https://your-api-host`
+- backend env: `ALLOWED_ORIGINS=https://your-frontend-host`
+
+You can start from [.env.example](/workspaces/FemNova/.env.example:1).
+
+### Free demo deployment flow
+
+If you want the lowest-cost demo path:
+- deploy the backend service from this repo
+- set persistent storage for `femnova.db` and `uploads/` if your host supports it
+- set backend env vars from `.env.example`
+- deploy the frontend as a static site with `VITE_API_BASE_URL` pointing at the backend
+
+Important limitation:
+- if the host does not provide persistent disk, SQLite data and uploaded files may reset between deploys or restarts
+
+### 3. Containerized deployment
+
+You can also package the app with Docker for repeatable environments.
+
+Recommended shape:
+- one container for the Express API
+- one container or static host for the Vite build
+- one persistent volume for the SQLite database and `uploads/`
+
+If you want stronger production scaling, Postgres is the next step, but the running app is still wired to SQLite today. The file [database/postgres.sql](/workspaces/FemNova/database/postgres.sql:1) is a useful starting schema, not the active database adapter.
+
+### Production checklist
+
+- set `NODE_ENV=production`
+- set `PORT` for the server if your host requires it
+- set `DATABASE_PATH` if you do not want the default local `femnova.db`
+- keep `uploads/` on persistent storage
+- run the app behind HTTPS so secure cookies work correctly in production
+- rebuild the frontend after changes with `npm run build`
 
 ## Assessment
 
@@ -35,11 +110,11 @@ Use the following prompt as the implementation brief for the app.
 
 ---
 
-Build a production-minded full-stack menstrual health platform called **FemNova**. Do not generate a demo-only prototype. Build a real, extensible application with a responsive web experience first and architecture that can later power a mobile app with minimal rework.
+Build a production-minded full-stack menstrual health platform called **HerHealth**. Do not generate a demo-only prototype. Build a real, extensible application with a responsive web experience first and architecture that can later power a mobile app with minimal rework.
 
 ### Product Goal
 
-FemNova helps users track menstrual cycles, symptoms, mood, labs, and hormone-related patterns in one place. It also provides a moderated community and a grounded educational chatbot. The system must surface clinically relevant lab-range flags without claiming to diagnose disease.
+HerHealth helps users track menstrual cycles, symptoms, mood, labs, and hormone-related patterns in one place. It also provides a moderated community and a grounded educational chatbot. The system must surface clinically relevant lab-range flags without claiming to diagnose disease.
 
 ### Platform Strategy
 
