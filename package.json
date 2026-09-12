@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.9.0 <23"
+  },
   "scripts": {
-    "dev": "concurrently \"node server.js\" \"vite --host 0.0.0.0\"",
-    "start": "node server.js",
-    "build": "vite build"
+    "dev": "concurrently \"node --env-file-if-exists=.env server.js\" \"vite --host 0.0.0.0\"",
+    "start": "node --env-file-if-exists=.env server.js",
+    "build": "vite build",
+    "test": "node --test",
+    "privacy:check": "node --env-file-if-exists=.env scripts/check-privacy.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

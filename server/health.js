@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { db, parseJson } from './database.js';
-import { cosineSimilarity, createEmbedding } from './vector.js';
+import { privacy, readPrivateJson } from './privacy.js';
+import { predictLabs, predictCycle, searchKnowledge, validPredictionInput, validCycleInput, validKnowledgeInput } from './analysis.js';
+export { isUrgentQuestion } from './analysis.js';
 
 export const CORE_TESTS = ['ft3', 'ft4', 'tsh', 'hb'];
 export const POPULATIONS = ['adult_non_pregnant', 'pregnancy_t1', 'pregnancy_t2', 'pregnancy_t3', 'adolescent'];
@@ -44,26 +46,6 @@ export function getReferenceRange(code, population = 'adult_non_pregnant', unit 
   return range;
 }
 
-export function evaluateValue(value, range) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || !range) return null;
-  const lowBorder = range.low + range.borderline_margin;
-  const highBorder = range.high - range.borderline_margin;
-  if (numeric < range.low) {
-    return { status: 'out_of_range', direction: 'low', delta: round(range.low - numeric) };
-  }
-  if (numeric > range.high) {
-    return { status: 'out_of_range', direction: 'high', delta: round(numeric - range.high) };
-  }
-  if (numeric <= lowBorder) {
-    return { status: 'borderline', direction: 'low', delta: round(numeric - range.low) };
-  }
-  if (numeric >= highBorder) {
-    return { status: 'borderline', direction: 'high', delta: round(range.high - numeric) };
-  }
-  return { status: 'normal', direction: null, delta: 0 };
-}
-
 export function serializeLog(row) {
   if (!row) return null;
   return {
@@ -84,47 +66,27 @@ export function serializeLog(row) {
   };
 }
 
-export function getCycleContext(userId, today = new Date().toISOString().slice(0, 10)) {
-  const rows = db.prepare(`
-    SELECT * FROM fn_daily_logs WHERE user_id = ? AND date <= ? ORDER BY date ASC
-  `).all(userId, today);
-  const periodDates = rows.filter((row) => ['light', 'medium', 'heavy'].includes(row.flow)).map((row) => row.date);
-  const starts = periodDates.filter((date, index) => index === 0 || daysBetween(periodDates[index - 1], date) > 1);
-  const lengths = starts.slice(1).map((date, index) => daysBetween(starts[index], date)).filter((length) => length >= 15 && length <= 60);
+export async function getCycleContext(userId, today = new Date().toISOString().slice(0, 10)) {
+  // Trusted preparation removes identity and absolute dates before analysis.
+  const rows = db.prepare('SELECT date, flow FROM fn_daily_logs WHERE user_id = ? AND date <= ? ORDER BY date ASC').all(userId, today);
   const profile = db.prepare('SELECT average_cycle_length FROM fn_profiles WHERE user_id = ?').get(userId);
-  const configured = profile?.average_cycle_length || 28;
-  const averageLength = lengths.length
-    ? Math.round(lengths.slice(-6).reduce((sum, length) => sum + length, 0) / Math.min(lengths.length, 6))
-    : configured;
-  const lastPeriodStart = starts.at(-1) || null;
-  const cycleDay = lastPeriodStart ? Math.max(1, daysBetween(lastPeriodStart, today) + 1) : null;
-  const normalizedDay = cycleDay ? ((cycleDay - 1) % averageLength) + 1 : null;
-  const ovulationDay = Math.max(10, averageLength - 14);
-  let phase = 'Unknown';
-  if (normalizedDay) {
-    if (normalizedDay <= 5) phase = 'Menstrual';
-    else if (normalizedDay < ovulationDay - 2) phase = 'Follicular';
-    else if (normalizedDay <= ovulationDay + 1) phase = 'Ovulation';
-    else phase = 'Luteal';
-  }
-  const nextPeriod = lastPeriodStart ? addDays(lastPeriodStart, averageLength) : null;
-  return {
-    averageLength,
-    variability: lengths.length > 1 ? Math.max(...lengths.slice(-6)) - Math.min(...lengths.slice(-6)) : null,
-    lastPeriodStart,
-    nextPeriod,
-    cycleDay,
-    phase,
-    ovulationDay,
-    predictionConfidence: starts.length >= 3 ? 0.82 : starts.length ? 0.58 : 0.25,
-    periodStarts: starts,
-    trackedDays: rows.length
+  const payload = {
+    periodOffsets: rows.filter(row => ['light', 'medium', 'heavy'].includes(row.flow)).map(row => daysBetween(today, row.date)),
+    trackedDays: rows.length,
+    averageLength: profile?.average_cycle_length || 28,
+  };
+  const input = await privacy.json(payload, data => validCycleInput(data) && JSON.stringify(data) === JSON.stringify(payload));
+  const { lastStartOffset, periodStartOffsets, ...context } = predictCycle(input);
+  // Associate results with calendar dates only after analysis, inside the app.
+  return { ...context,
+    lastPeriodStart: lastStartOffset === null ? null : addDays(today, lastStartOffset),
+    nextPeriod: lastStartOffset === null ? null : addDays(today, lastStartOffset + context.averageLength),
+    periodStarts: periodStartOffsets.map(offset => addDays(today, offset)),
   };
 }
 
-export function phaseForDate(userId, date) {
-  const context = getCycleContext(userId, date);
-  return context.phase;
+export async function phaseForDate(userId, date) {
+  return (await getCycleContext(userId, date)).phase;
 }
 
 export function getLabResults(userId) {
@@ -195,84 +157,59 @@ export function getLatestPrediction(userId) {
   };
 }
 
-export function generatePrediction(userId) {
-  const profile = db.prepare('SELECT * FROM fn_profiles WHERE user_id = ?').get(userId);
-  const logs = db.prepare(`SELECT * FROM fn_daily_logs WHERE user_id = ? ORDER BY date DESC LIMIT 90`).all(userId);
+export async function generatePrediction(userId) {
+  // This is trusted input preparation and result persistence, not model code.
+  const profile = db.prepare('SELECT population FROM fn_profiles WHERE user_id = ?').get(userId);
+  const logs = db.prepare('SELECT flow, energy, symptoms FROM fn_daily_logs WHERE user_id = ? ORDER BY date DESC LIMIT 90').all(userId);
   const recentLabs = getLabResults(userId).slice(0, 5);
-  const symptoms = logs.flatMap((row) => parseJson(row.symptoms, []));
-  const heavyDays = logs.filter((row) => row.flow === 'heavy').length;
-  const lowEnergyDays = logs.filter((row) => row.energy && row.energy <= 2).length;
-  const fatigueCount = symptoms.filter((item) => item === 'fatigue').length;
-  const dizzinessCount = symptoms.filter((item) => item === 'dizziness').length;
-  const featureSnapshot = {
+  const symptoms = logs.flatMap(row => {
+    const parsed = parseJson(row.symptoms, []);
+    return Array.isArray(parsed) ? parsed.filter(item => SYMPTOMS.includes(item)) : [];
+  });
+  const features = {
     trackedDays: logs.length,
     pastLabPanels: recentLabs.length,
-    heavyFlowDays: heavyDays,
-    lowEnergyDays,
-    fatigueReports: fatigueCount,
-    dizzinessReports: dizzinessCount,
-    population: profile.population
+    heavyFlowDays: logs.filter(row => row.flow === 'heavy').length,
+    lowEnergyDays: logs.filter(row => row.energy && row.energy <= 2).length,
+    fatigueReports: symptoms.filter(item => item === 'fatigue').length,
+    dizzinessReports: symptoms.filter(item => item === 'dizziness').length,
+    population: profile?.population || 'adult_non_pregnant',
   };
+  const latestValues = Object.fromEntries(CORE_TESTS.map(code => [code, null]));
+  for (const result of recentLabs) {
+    for (const value of result.values) {
+      if (CORE_TESTS.includes(value.code) && latestValues[value.code] === null) latestValues[value.code] = value.value;
+    }
+  }
+  const references = Object.fromEntries(CORE_TESTS.map(code => [code, getReferenceRange(code, features.population)]));
+  const ranges = Object.fromEntries(CORE_TESTS.map(code => [code, {
+    low: references[code].low, high: references[code].high, margin: references[code].borderline_margin,
+  }]));
+  const payload = { features, latestValues, ranges };
+  const input = await privacy.json(payload, data => validPredictionInput(data) && JSON.stringify(data) === JSON.stringify(payload));
+  const output = predictLabs(input);
+  const safeFeatures = readPrivateJson(input).features;
   const model = db.prepare("SELECT * FROM fn_model_versions WHERE version = 'baseline-1.0.0'").get();
   const predictionId = randomUUID();
   const explanation = 'A deterministic baseline combined recent tracked patterns with prior values when available. It is a product-flow placeholder, not a clinically validated model.';
-  db.prepare(`
-    INSERT INTO fn_lab_predictions (id, user_id, model_version_id, feature_snapshot, explanation)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(predictionId, userId, model.id, JSON.stringify(featureSnapshot), explanation);
-
-  const latestByCode = {};
-  for (const result of recentLabs) {
-    for (const value of result.values) {
-      if (latestByCode[value.code] === undefined) latestByCode[value.code] = value.value;
+  // Nothing is persisted as an inference until sanitization and analysis succeed.
+  db.transaction(() => {
+    db.prepare('INSERT INTO fn_lab_predictions (id, user_id, model_version_id, feature_snapshot, explanation) VALUES (?, ?, ?, ?, ?)').run(predictionId, userId, model.id, JSON.stringify(safeFeatures), explanation);
+    const insert = db.prepare('INSERT INTO fn_prediction_values (id, prediction_id, test_id, predicted_value, unit, confidence, status, direction, delta, reference_range_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const { code, predicted, confidence, evaluation } of output) {
+      const reference = references[code];
+      insert.run(randomUUID(), predictionId, reference.test_id, predicted, reference.unit, confidence, evaluation.status, evaluation.direction, evaluation.delta, reference.id);
     }
-  }
-  const modifiers = {
-    ft3: -(fatigueCount * 0.025 + lowEnergyDays * 0.015),
-    ft4: -(fatigueCount * 0.012 + lowEnergyDays * 0.006),
-    tsh: fatigueCount * 0.08 + lowEnergyDays * 0.04,
-    hb: -(heavyDays * 0.12 + dizzinessCount * 0.08 + fatigueCount * 0.035)
-  };
-  const output = [];
-  const insert = db.prepare(`
-    INSERT INTO fn_prediction_values
-      (id, prediction_id, test_id, predicted_value, unit, confidence, status, direction, delta, reference_range_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  for (const code of CORE_TESTS) {
-    const range = getReferenceRange(code, profile.population);
-    const baseline = latestByCode[code] ?? (range.low + range.high) / 2;
-    const predicted = round(Math.max(0, baseline + modifiers[code]));
-    const evaluation = evaluateValue(predicted, range);
-    const evidence = Math.min(0.78, 0.38 + logs.length * 0.006 + recentLabs.length * 0.06);
-    const confidence = round(evidence, 2);
-    insert.run(randomUUID(), predictionId, range.test_id, predicted, range.unit, confidence, evaluation.status, evaluation.direction, evaluation.delta, range.id);
-    output.push({ code, predicted, confidence, evaluation });
-  }
-  db.prepare(`
-    INSERT INTO fn_inference_audit_logs (id, user_id, prediction_id, model_version, input_summary)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(randomUUID(), userId, predictionId, model.version, JSON.stringify(featureSnapshot));
+    // Audit metadata excludes original records, user notes, and Anymize responses.
+    db.prepare('INSERT INTO fn_inference_audit_logs (id, user_id, prediction_id, model_version, input_summary) VALUES (?, ?, ?, ?, ?)').run(randomUUID(), userId, predictionId, model.version, JSON.stringify({ privacyPolicy: 'anymize-v1', status: 'completed' }));
+  })();
   return { prediction: getLatestPrediction(userId), output };
 }
 
-export function rankKnowledge(question, limit = 3) {
-  const queryEmbedding = createEmbedding(question);
-  return db.prepare(`
-    SELECT kc.content AS chunk_content, kc.embedding, ka.*
-    FROM fn_knowledge_chunks kc
-    JOIN fn_knowledge_articles ka ON ka.id = kc.article_id
-    WHERE ka.approved = 1
-  `).all()
-    .map((article) => ({ ...article, score: cosineSimilarity(queryEmbedding, parseJson(article.embedding, [])) }))
-    .filter((article) => article.score > 0.08)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-}
-
-export function isUrgentQuestion(question) {
-  const urgent = ['fainting', 'fainted', 'chest pain', 'cannot breathe', "can't breathe", 'trouble breathing', 'suicide', 'self harm', 'kill myself', 'severe bleeding', 'soaking a pad', 'pregnant and bleeding', 'unbearable pain'];
-  return urgent.some((phrase) => String(question).toLowerCase().includes(phrase));
+export async function rankKnowledge(question, limit = 3) {
+  const articles = db.prepare('SELECT title, topic, summary, content, source_title, source_url FROM fn_knowledge_articles WHERE approved = 1').all();
+  const input = await privacy.json({ question, articles }, validKnowledgeInput);
+  return searchKnowledge(input, limit);
 }
 
 export function round(value, places = 2) {

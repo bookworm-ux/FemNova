@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowUpRight, Baby, Bot, CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flower2, Heart, Home, Menu, MessageCircle, Microscope, Moon, Plus, Send, Sparkles, Sprout, Sun, Users, X } from 'lucide-react';
 
 const API = '/api';
@@ -6,7 +6,12 @@ const defaultLog = { date: new Date().toISOString().slice(0, 10), flow: 'none', 
 
 async function api(path, options) {
   const response = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json' }, ...options });
-  if (!response.ok) throw new Error('Something went wrong');
+  if (!response.ok) {
+    const details = await response.json().catch(() => ({}));
+    const error = new Error('Something went wrong');
+    error.code = details.code;
+    throw error;
+  }
   return response.json();
 }
 
@@ -78,7 +83,7 @@ function HomePage({ dashboard, onSaved }) {
     <section className="section-heading"><div><p className="eyebrow">September 2026</p><h2>Your month at a glance</h2></div><button className="icon-button" aria-label="Previous month"><ChevronLeft size={18} /></button><button className="icon-button" aria-label="Next month"><ChevronRight size={18} /></button></section>
     <section className="tracker-layout"><div className="calendar-panel"><div className="calendar-head"><span>Cycle day {today}</span><span className="legend"><i className="dot rose" /> Period <i className="dot lilac" /> Fertile <i className="dot sage" /> Logged</span></div><div className="weekdays">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: 5 }, (_, row) => cycleDays.slice(row * 7, row * 7 + 7).map(day => <div key={day} className={`day ${day === today ? 'today' : ''} ${day <= 5 ? 'period' : ''} ${day >= 11 && day <= 15 ? 'fertile' : ''}`}><span>{day}</span>{day === 3 && <i>♥</i>}{day === today && <small>today</small>}{day === 15 && <i>✦</i>}</div>))}</div><button className="text-button" onClick={() => setShowLog(true)}><Plus size={15} /> Add a day note</button></div><div className="insight-panel"><div className="panel-title"><span>Today's check-in</span><Sprout size={20} /></div><p className="insight-quote">“Small notes become powerful patterns.”</p><div className="mini-metrics"><Metric label="Mood" value={dashboard?.latest?.mood || 'Not logged'} icon={<Heart size={16} />} /><Metric label="Energy" value={dashboard?.latest ? `${dashboard.latest.energy}/5` : '—'} icon={<Activity size={16} />} /></div><button className="secondary-button" onClick={() => setShowLog(true)}>How are you feeling?</button></div></section>
     <section className="section-heading lower"><div><p className="eyebrow">A softer health picture</p><h2>Your latest signals</h2></div><button className="text-button">View all insights <ArrowUpRight size={15} /></button></section>
-    <section className="signal-grid"><SignalCard icon={<Microscope />} title="Lab watch" value={dashboard?.labSummary?.flagged ? `${dashboard.labSummary.flagged} needs a look` : 'No lab flags'} detail="Free T3 · Free T4 · TSH · Hb" tone={dashboard?.labSummary?.flagged ? 'peach' : 'mint'} /><SignalCard icon={<Moon />} title="Cycle forecast" value={dashboard?.cycle?.nextPeriod || 'October 10'} detail={`${dashboard?.cycle?.averageLength || 28}-day average cycle`} tone="lilac" /><SignalCard icon={<Baby />} title="Gentle reminder" value="Hydration helps" detail="Especially on lower-energy days" tone="butter" /></section>
+    <section className="signal-grid"><SignalCard icon={<Microscope />} title="Lab watch" value={dashboard?.labSummary?.status === 'unavailable' ? 'Checks unavailable' : dashboard?.labSummary?.flagged ? `${dashboard.labSummary.flagged} needs a look` : 'No lab flags'} detail="Free T3 · Free T4 · TSH · Hb" tone={dashboard?.labSummary?.flagged ? 'peach' : 'mint'} /><SignalCard icon={<Moon />} title="Cycle forecast" value={dashboard?.cycle?.nextPeriod || 'October 10'} detail={`${dashboard?.cycle?.averageLength || 28}-day average cycle`} tone="lilac" /><SignalCard icon={<Baby />} title="Gentle reminder" value="Hydration helps" detail="Especially on lower-energy days" tone="butter" /></section>
     {showLog && <Modal title="How are you feeling today?" onClose={() => setShowLog(false)}><form className="form-grid" onSubmit={saveLog}><label>Date<input type="date" value={log.date} onChange={e => setLog({ ...log, date: e.target.value })} required /></label><label>Flow<select value={log.flow} onChange={e => setLog({ ...log, flow: e.target.value })}><option>none</option><option>spotting</option><option>light</option><option>medium</option><option>heavy</option></select></label><label>Mood<select value={log.mood} onChange={e => setLog({ ...log, mood: e.target.value })}>{['Calm', 'Happy', 'Low', 'Anxious', 'Irritable', 'Energised'].map(m => <option key={m}>{m}</option>)}</select></label><label>Energy <span className="range-value">{log.energy}/5</span><input type="range" min="1" max="5" value={log.energy} onChange={e => setLog({ ...log, energy: e.target.value })} /></label><label className="full">Symptoms<input placeholder="Cramps, bloating, headache..." value={log.symptoms} onChange={e => setLog({ ...log, symptoms: e.target.value })} /></label><label className="full">A note for yourself<textarea placeholder="Anything you want to remember?" value={log.notes} onChange={e => setLog({ ...log, notes: e.target.value })} /></label><button className="primary-button full" type="submit">Save check-in <ArrowUpRight size={16} /></button></form></Modal>}
   </div>;
 }
@@ -91,7 +96,7 @@ function LabsPage({ labs, onSaved }) {
   const latest = labs[0];
   return <div className="page-wrap inner-page"><PageIntro eyebrow="Your health labs" title={<>Numbers can tell a story.<br /><em>We help you read it.</em></>} copy="Keep your thyroid and blood health notes in one calm, private place. Your home view will surface anything worth discussing with your doctor." icon={<Microscope size={32} />} /><section className="labs-layout"><div className="form-card"><div className="panel-title"><span>Add a result</span><span className="required-note">All fields optional</span></div><form className="form-grid" onSubmit={save}><label>Date<input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required /></label><label>Report / doctor note<input placeholder="Optional label" value={form.comments} onChange={e => setForm({ ...form, comments: e.target.value })} /></label>{[['freeT3','Free T3','pg/mL'],['freeT4','Free T4','ng/dL'],['tsh','TSH','mIU/L'],['hb','Haemoglobin','g/dL']].map(([key,label,unit]) => <label key={key}>{label}<span className="unit">{unit}</span><input type="number" step="any" placeholder="Enter value" value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} /></label>)}<button className="primary-button full" type="submit">Save lab result <ArrowUpRight size={16} /></button></form><p className="form-footnote">Ranges are typical adult, non-pregnant reference ranges. Your laboratory's range should always take priority.</p></div><div className="range-card"><div className="panel-title"><span>Reference ranges</span><CircleHelp size={18} /></div><p>We use these starting ranges to spot values you may want to discuss.</p>{[['Free T3','2.3–4.2','pg/mL'],['Free T4','0.8–1.8','ng/dL'],['TSH','0.4–4.0','mIU/L'],['Hb','12.0–15.5','g/dL']].map(row => <div className="range-row" key={row[0]}><span>{row[0]}</span><strong>{row[1]}</strong><small>{row[2]}</small></div>)}<div className="range-note"><Sparkles size={17} /><span>Results are informational, never a diagnosis.</span></div></div></section><section className="section-heading lower"><div><p className="eyebrow">Your history</p><h2>Recent results</h2></div></section><section className="lab-history">{latest ? <LabResult result={latest} /> : <div className="empty-state"><Microscope size={25} /><p>Your saved lab results will appear here.</p></div>}{labs.slice(1).map(lab => <LabResult result={lab} key={lab.id} />)}</section></div>;
 }
-function LabResult({ result }) { return <article className="lab-result"><div><small>{result.date}</small><strong>{result.comments || 'Lab report'}</strong></div><LabPill label="FT3" value={result.freeT3} status={result.flags?.freeT3} /><LabPill label="FT4" value={result.freeT4} status={result.flags?.freeT4} /><LabPill label="TSH" value={result.tsh} status={result.flags?.tsh} /><LabPill label="Hb" value={result.hb} status={result.flags?.hb} /></article>; }
+function LabResult({ result }) { return <article className="lab-result"><div><small>{result.date}</small><strong>{result.comments || 'Lab report'}</strong>{result.flagStatus === 'unavailable' && <small>Saved · range checks unavailable</small>}</div><LabPill label="FT3" value={result.freeT3} status={result.flags?.freeT3} /><LabPill label="FT4" value={result.freeT4} status={result.flags?.freeT4} /><LabPill label="TSH" value={result.tsh} status={result.flags?.tsh} /><LabPill label="Hb" value={result.hb} status={result.flags?.hb} /></article>; }
 function LabPill({ label, value, status }) { return <span className={`lab-pill ${status && status !== 'normal' ? 'warn' : ''}`}><small>{label}</small><strong>{value || '—'}</strong>{status && status !== 'normal' && <i>{status}</i>}</span>; }
 
 function CommunityPage({ posts, onSaved }) {
@@ -102,4 +107,38 @@ function CommunityPage({ posts, onSaved }) {
 function PageIntro({ eyebrow, title, copy, icon }) { return <section className="page-intro"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{copy}</p></div><div className="intro-icon">{icon}</div></section>; }
 
 function Modal({ title, onClose, children }) { return <div className="modal-backdrop"><div className="modal"><div className="modal-header"><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button></div>{children}</div></div>; }
-function Chatbot({ onClose }) { const [messages, setMessages] = useState([{ role: 'assistant', text: 'Hi, I am Nova. Ask me about your cycle, energy, nutrition, or a lab result. I will keep it gentle and grounded.' }]); const [input, setInput] = useState(''); const send = async e => { e.preventDefault(); if (!input.trim()) return; const question = input; setInput(''); setMessages(prev => [...prev, { role: 'user', text: question }]); try { const result = await api('/chat', { method: 'POST', body: JSON.stringify({ question }) }); setMessages(prev => [...prev, { role: 'assistant', text: result.answer }]); } catch { setMessages(prev => [...prev, { role: 'assistant', text: 'I could not reach my knowledge base just now. Please try again.' }]); } }; return <div className="chat-window"><div className="chat-header"><span className="bot-avatar"><Bot size={18} /></span><div><strong>Nova guide</strong><small>Here to help you understand</small></div><button onClick={onClose} aria-label="Close chat"><X size={18} /></button></div><div className="chat-messages">{messages.map((message, index) => <div className={`bubble ${message.role}`} key={index}>{message.text}</div>)}</div><form className="chat-form" onSubmit={send}><input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask a question..." /><button aria-label="Send"><Send size={16} /></button></form><small className="chat-disclaimer">Nova is educational, not medical advice.</small></div>; }
+function Chatbot({ onClose }) {
+  const [messages, setMessages] = useState([{ role: 'assistant', text: 'Hi, I am Nova. Ask me about your cycle, energy, nutrition, or a lab result.' }]);
+  const [input, setInput] = useState('');
+  const [pending, setPending] = useState(false);
+  const sending = useRef(false);
+  const send = async e => {
+    e.preventDefault();
+    if (!input.trim() || sending.current) return;
+    sending.current = true;
+    setPending(true);
+    const question = input;
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', text: question }]);
+    try {
+      const result = await api('/chat', { method: 'POST', body: JSON.stringify({ question }) });
+      setMessages(prev => [...prev, { role: 'assistant', text: result.answer }]);
+    } catch (error) {
+      const text = error.code === 'PRIVACY_UNAVAILABLE'
+        ? 'Privacy protection is unavailable. Nova could not process your message. Please try again later.'
+        : 'Your message could not be completed. Please try again.';
+      setMessages(prev => [...prev, { role: 'assistant', text }]);
+      setInput(question);
+    } finally {
+      sending.current = false;
+      setPending(false);
+    }
+  };
+  return <div className="chat-window">
+    <div className="chat-header"><span className="bot-avatar"><Bot size={18} /></span><div><strong>Nova guide</strong><small>Here to help you understand</small></div><button onClick={onClose} aria-label="Close chat"><X size={18} /></button></div>
+    <div className="chat-messages" role="log" aria-live="polite">{messages.map((message, index) => <div className={`bubble ${message.role}`} key={index}>{message.text}</div>)}{pending && <div className="bubble assistant" role="status">Preparing your message privately…</div>}</div>
+    <form className="chat-form" onSubmit={send}><input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask a question..." aria-label="Your question" maxLength={4000} disabled={pending} /><button aria-label="Send" disabled={pending || !input.trim()}><Send size={16} /></button></form>
+    <small className="chat-disclaimer">Messages are anonymized before Nova processes them.</small>
+    <small className="chat-disclaimer">Nova is educational, not medical advice.</small>
+  </div>;
+}
