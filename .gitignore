@@ -1,0 +1,6 @@
+node_modules/
+dist/
+femnova.db
+femnova.db-shm
+femnova.db-wal
+.env
