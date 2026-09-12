@@ -4,3 +4,7 @@ femnova.db
 femnova.db-shm
 femnova.db-wal
 .env
+.env.*
+!.env.example
+.local-tools/
+~$*

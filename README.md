@@ -75,6 +75,42 @@ If you want stronger production scaling, Postgres is the next step, but the runn
 - run the app behind HTTPS so secure cookies work correctly in production
 - rebuild the frontend after changes with `npm run build`
 
+## Run the current app
+
+On the prepared Windows workspace, enter your key in `.env`, then run
+`.\femnova.ps1 privacy:check` and `.\femnova.ps1`. The launcher uses the portable
+Node 22 runtime already downloaded into the ignored `.local-tools` folder.
+
+For a fresh checkout, follow the setup below.
+
+Use Node.js 22 (22.9 or newer) with npm. In this folder:
+
+```powershell
+npm ci
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Put your Anymize API key in `.env` as `ANYMIZE_API_KEY=...`. Keep it on the server;
+do not paste it into chat, frontend code, or a variable beginning with `VITE_`.
+Then run:
+
+```powershell
+npm run privacy:check
+npm run dev
+```
+
+The privacy check sends only a synthetic name and email to Anymize and prints a
+pass/fail result. Open the Vite URL shown in the terminal. `npm test` runs mocked
+privacy tests without an API key or network access; `npm run build` builds the UI.
+
+All user-data analysis must pass through the Anymize gateway. Without a working
+key, chat and analysis stop; saved records can still be entered and viewed.
+An unavailable lab check is displayed as unavailable, never as a normal result.
+See [the privacy implementation and extension guide](docs/privacy.md).
+
+The sections below are the wider product brief. They include planned features;
+the current chatbot still uses educational text matching, not a generative LLM.
+
 ## Assessment
 
 The concept is strong and absolutely buildable, but the current prompt is still closer to a product vision than an implementation-ready application spec.

@@ -2,7 +2,6 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { chunkText, createEmbedding } from './vector.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const databasePath = process.env.DATABASE_PATH || path.join(root, 'femnova.db');
@@ -414,17 +413,8 @@ for (const article of articles) {
   insertArticle.run(randomUUID(), article.slug, article.title, article.topic, article.summary, article.content, article.sourceTitle, article.sourceUrl);
 }
 
-const insertChunk = db.prepare(`
-  INSERT OR REPLACE INTO fn_knowledge_chunks (id, article_id, chunk_index, content, embedding, indexed_at)
-  VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-`);
-const articleRows = db.prepare('SELECT id, title, summary, content FROM fn_knowledge_articles WHERE approved = 1').all();
-for (const article of articleRows) {
-  chunkText(`${article.title}. ${article.summary} ${article.content}`).forEach((content, index) => {
-    const existing = db.prepare('SELECT id FROM fn_knowledge_chunks WHERE article_id = ? AND chunk_index = ?').get(article.id, index);
-    insertChunk.run(existing?.id || randomUUID(), article.id, index, content, JSON.stringify(createEmbedding(content)));
-  });
-}
+// Indexing raw database content at startup would bypass the privacy gateway.
+// rankKnowledge now sanitizes approved content before computing any embeddings.
 
 export function audit(userId, action, entityType, entityId = null, metadata = {}) {
   db.prepare(`

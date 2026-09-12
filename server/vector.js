@@ -1,10 +1,13 @@
+import { readPrivateText } from './privacy.js';
+
 const DIMENSIONS = 64;
 
-export function tokenize(text) {
+function tokenize(text) {
   return String(text).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2);
 }
 
-export function createEmbedding(text) {
+export function createEmbedding(input, path = []) {
+  const text = readPrivateText(input, path);
   const vector = Array(DIMENSIONS).fill(0);
   for (const token of tokenize(text)) {
     let hash = 2166136261;
