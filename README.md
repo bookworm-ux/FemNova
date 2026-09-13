@@ -1,6 +1,6 @@
 # Ovariety
 
-HerHealth is the app name. `FemNova` is the team name behind the project.
+HerHealth is the app name. `Ovariety` is the team name behind the project.
 
 ## Deployment Options
 
