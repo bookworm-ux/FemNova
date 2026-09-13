@@ -1,4 +1,4 @@
-# HerHealth
+# Ovariety
 
 HerHealth is the app name. `FemNova` is the team name behind the project.
 
